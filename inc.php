@@ -57,6 +57,7 @@ class Klaviyo_Profile_Rewards_Sync {
 
     try {
 
+      $this->log( 'Getting Klaviyo profile ID for ' . $user_email );
       $response = $this->klaviyo->Profiles->getProfiles(
           null, // $additional_fields_profile
           null, // $fields_profile
@@ -68,12 +69,13 @@ class Klaviyo_Profile_Rewards_Sync {
 
         if ( is_array( $found_profile ))  {
           $klaviyo_profile_id = $found_profile['id'];
+          $this->log( 'Email: ' . $user_email . ' -> Klaviyo profile ID: ' . $klaviyo_profile_id );
         }
       }
     }
     catch ( Exception $e) {
-      // TODO add logging
-      echo('<pre>' . print_r( $e, 1) . '</pre>' );
+      // Log the error into WooCommerce logging system
+      $this->log( 'Klaviyo API Error: ' . $e->getMessage() );
     }
 
     return $klaviyo_profile_id;
@@ -104,16 +106,18 @@ class Klaviyo_Profile_Rewards_Sync {
         ]
       ];
 
+      $this->log( 'Updating Klaviyo profile ID: ' . $klaviyo_profile_id . ' with reward points: ' . $reward_points );
+
       $update_response = $this->klaviyo->Profiles->updateProfile( $klaviyo_profile_id, $profile_partial_update_query );
 
       if ( is_array($update_response) ) {
-        // TODO 
-        echo('RESPONSE<pre>' . print_r( $e, 1) . '</pre>' );
+
+        $this->log( 'Update response: ' . print_r( $update_response, 1) );
       }
     }
     catch ( Exception $e) {
-      // TODO add logging
-      echo('EXCEPTION<pre>' . print_r( $e, 1) . '</pre>' );
+      // Log the error into WooCommerce logging system
+      $this->log( 'Klaviyo API Error: ' . $e->getMessage() );
     }
 
     return $update_response;
@@ -148,4 +152,17 @@ class Klaviyo_Profile_Rewards_Sync {
     add_user_meta( $user_id, self::UMETA_KEY__PROFILE_ID, $klaviyo_profile_id );
     
   }
+
+  /**
+   * Log the message into WooCommerce log
+   * 
+   * @param string $message
+   */
+  private function log( $message ) {
+    if ( function_exists( 'wc_get_logger' ) ) {
+      $logger = wc_get_logger();
+      $logger->info( $message );
+    }
+  }
+  
 }
