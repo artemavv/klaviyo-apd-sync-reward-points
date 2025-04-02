@@ -4,7 +4,7 @@
  * Plugin URI:
  * Description: Updates user's rewards points via Klaviyo API.
  * Author: Artem
- * Version: 0.1
+ * Version: 0.3
  * Author URI:
  */
 
@@ -15,10 +15,28 @@ include_once( ABSPATH . 'wp-includes/pluggable.php' );
 
 
 function test_klaviyo() {
-  if ( isset($_GET['test_klaviyo']) ) {
 
-    $user_id = $_GET['test_klaviyo']; 
-    sync_user_reward_points_with_klaviyo( $user_id );
+  if ( isset($_GET['test_klaviyo232323']) ) {
+
+    $klaviyo_sync = new Klaviyo_Profile_Rewards_Sync();
+
+    if ( $klaviyo_sync->is_ok() ) {
+
+      $users = $klaviyo_sync->get_users_to_update_bulk( 4 );
+
+      foreach ( $users['user_data'] as $user ) {
+        $user_ids[] = $user['ID'];
+      }
+
+      $klaviyo_sync->log( 'Sendind BULK profiles to update in Klaviyo, IDs: ' . $users['min_id'] . ' - ' . $users['max_id'] );
+
+      if ( $klaviyo_sync->update_profiles_bulk( $users['user_data']) ) {
+        $klaviyo_sync->mark_users_as_synced( $user_ids );   
+      }
+
+      die();
+    }
+    
   }
 }
 
@@ -72,10 +90,12 @@ function schedule_user_profiles_for_klaviyo_sync() {
 
 if ( function_exists('as_schedule_recurring_action') ) {
   // Schedule new portion of users to be processed every 10 minutes 
-  if ( ! as_next_scheduled_action( 'schedule_user_profiles_for_klaviyo_sync' ) ) {
-    as_schedule_recurring_action( time(), 600, 'schedule_user_profiles_for_klaviyo_sync' );
+  if ( ! as_next_scheduled_action( 'new_user_profiles_for_klaviyo_sync' ) ) {
+    as_schedule_recurring_action( time(), 600, 'new_user_profiles_for_klaviyo_sync' );
   }
 }
+
+add_action( 'new_user_profiles_for_klaviyo_sync', 'schedule_user_profiles_for_klaviyo_sync', 10, 0 );
 
 // Add the action hook for processing user profiles
 add_action( 'process_user_profile_for_klaviyo', 'sync_user_reward_points_with_klaviyo', 10, 1 );
