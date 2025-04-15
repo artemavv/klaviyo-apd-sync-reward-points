@@ -18,7 +18,7 @@ class Klaviyo_Profile_Rewards_Sync {
    * An instance of KlaviyoAPI
    * @var object
    */
-  private $klaviyo;
+  public $klaviyo;
   
   public function __construct( $api_key = '' ) {
     
@@ -121,9 +121,10 @@ class Klaviyo_Profile_Rewards_Sync {
     We have a custom SQL table to store the Klaviyo data for each user
 
 CREATE TABLE `wp_users_klaviyo_data` (
-  `user_id` int NOT NULL PRIMARY KEY,
+  `klaviyo_id` varchar(255) NOT NULL PRIMARY KEY,
+  `email` varchar(255) NOT NULL,
   `status` tinytext NOT NULL,
-  `klaviyo_id` varchar(255) NOT NULL
+  `user_id` int NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
   */
 
@@ -137,15 +138,15 @@ CREATE TABLE `wp_users_klaviyo_data` (
     global $wpdb;
     
     $prefix = $wpdb->prefix;
-    
-    $sql = "INSERT INTO {$prefix}users_klaviyo_data (user_id, status, klaviyo_id) VALUES ";
+    /*
+    $sql = "UPDATE INTO {$prefix}users_klaviyo_data (klaviyo_id, email, status, user_id) VALUES ";
 
     foreach ( $user_ids as $user_id ) {
       $sql .= "(" . $user_id . ", 'synced', ''),";
     }
 
     $sql = rtrim( $sql, ',' );
-
+*/
     $wpdb->query( $sql );
 
   }
@@ -194,7 +195,7 @@ CREATE TABLE `wp_users_klaviyo_data` (
           $this->api_key
       );
 
-      if ( is_array($response) ) {
+      if ( $response ) {
         $this->log( 'Bulk response: ' . print_r( $response, 1) );
         return true;
       }
@@ -289,6 +290,12 @@ CREATE TABLE `wp_users_klaviyo_data` (
     if ( function_exists( 'wc_get_logger' ) ) {
       $logger = wc_get_logger();
       $logger->info( $message );
+    }
+    else {
+      if ( isset( $_GET['test_klaviyo_logs'] ) )  {
+        echo ('<br><pre>' . print_r( $message, 1 ). '</pre>');
+        
+      }
     }
   }
   

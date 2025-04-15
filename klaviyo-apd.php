@@ -14,32 +14,6 @@ require 'inc.php';
 include_once( ABSPATH . 'wp-includes/pluggable.php' );
 
 
-function test_klaviyo() {
-
-  if ( isset($_GET['test_klaviyo232323']) ) {
-
-    $klaviyo_sync = new Klaviyo_Profile_Rewards_Sync();
-
-    if ( $klaviyo_sync->is_ok() ) {
-
-      $users = $klaviyo_sync->get_users_to_update_bulk( 4 );
-
-      foreach ( $users['user_data'] as $user ) {
-        $user_ids[] = $user['ID'];
-      }
-
-      $klaviyo_sync->log( 'Sendind BULK profiles to update in Klaviyo, IDs: ' . $users['min_id'] . ' - ' . $users['max_id'] );
-
-      if ( $klaviyo_sync->update_profiles_bulk( $users['user_data']) ) {
-        $klaviyo_sync->mark_users_as_synced( $user_ids );   
-      }
-
-      die();
-    }
-    
-  }
-}
-
 /**
  * Callback function for 'process_user_profile_for_klaviyo' action
  * 
@@ -76,28 +50,190 @@ function sync_user_reward_points_with_klaviyo( $user_id ) {
 }
 
 
-// Schedule actions for each user profile
-function schedule_user_profiles_for_klaviyo_sync() {
+/**
+ * Callback function for 'bulk_sync_profiles_for_klaviyo' action
+ * 
+ * This is a recurring scheduled action to sync profiles in bulk
+ * 
+ */
+function bulk_sync_profiles_for_klaviyo() {
 
   $klaviyo_sync = new Klaviyo_Profile_Rewards_Sync();
 
-  $user_ids = $klaviyo_sync->get_users_without_klaviyo_id();
-  foreach ( $user_ids as $user_id ) {
-      // Schedule a single action for each user profile
-      as_schedule_single_action( time() + 60, 'process_user_profile_for_klaviyo', array( 'user_id' => $user_id ) );
+  if ( $klaviyo_sync->is_ok() ) {
+
+    $users = $klaviyo_sync->get_users_to_update_bulk( 10 );
+
+    foreach ( $users['user_data'] as $user ) {
+      $user_ids[] = $user['ID'];
+    }
+
+    $klaviyo_sync->log( 'Sending BULK profiles to update in Klaviyo, IDs: ' . $users['min_id'] . ' - ' . $users['max_id'] );
+
+
+    if ( $klaviyo_sync->update_profiles_bulk( $users['user_data']) ) {
+      $klaviyo_sync->mark_users_as_synced( $user_ids );   
+    }
+
+  }
+  
+}
+
+/**
+ * Downloads profiles from Klaviyo in bulk using API call "get_profiles"
+ * and saves them to the database
+ * 
+ * Setting page cursor to download the next page on the next run
+ * 
+ * 
+ * Makes the equivalent of this API call: 
+ * 
+ * curl --request GET       
+ * --url 'https://a.klaviyo.com/api/profiles??additional-fields%5Bprofile%5D=subscriptions&fields%5Bprofile%5D=id,email&page%5Bsize%5D=100'    
+ * --header 'Authorization: Klaviyo-API-Key ***************'       
+ * --header 'accept: application/vnd.api+json'       
+ * --header 'revision: 2025-01-15'
+ *
+ * 
+ * Note that %5B is "[" and %5D is "]" in the curl request parameters. 
+ */
+
+ function bulk_download_profiles_for_klaviyo( $debug = false ) {
+  $klaviyo_sync = new Klaviyo_Profile_Rewards_Sync();
+
+  if (!$klaviyo_sync->is_ok()) {
+    return;
+  }
+
+  global $wpdb;
+  $table_name = $wpdb->prefix . 'users_klaviyo_data';
+
+  // TODO
+  // not a valid filter, need to manually filter users later
+  // $profile_filter = 'equals(subscriptions.email.marketing.can_receive_email_marketing,true)';
+
+  // Get the last processed page cursor from options
+  $page_cursor = get_option( 'klaviyo_profiles_page_cursor', null );
+
+  // Klaviyo API allows to download up to 100 profiles per request
+  $page_size = 10; 
+
+  try {
+    // Get profiles from Klaviyo API
+    $response = $klaviyo_sync->klaviyo->Profiles->getProfiles(
+      array( 'subscriptions' ), // additional_fields_profile
+      array( 'id', 'email' ), // fields to be gathered from profiles
+      null, // $profile_filter
+      $page_cursor,
+      $page_size
+    );
+
+    if (!is_array($response) || !isset($response['data'])) {
+      $klaviyo_sync->log('Invalid response from Klaviyo API');
+      return;
+    }
+
+    $profiles = $response['data'];
+
+    if ( isset( $response['links']['next'] ) ) {
+      $next_page_cursor = extract_page_cursor_parameter($response['links']['next']);
+    }
+
+    if ( $debug ) {
+      echo('<pre>' . print_r( $profiles , 1 ) . '</pre>' );
+      die();
+    }
+
+    
+    // Process each profile
+    foreach ($profiles as $profile) {
+
+      if ( isset($profile['id']) && isset($profile['attributes']['email']) ) {
+        
+        $klaviyo_id = $profile['id'];
+        $email = $profile['attributes']['email'];
+
+        $user_status = 'not_subscribed';
+
+        $can_receive_email_marketing = $profile['attributes']['subscriptions']['email']['marketing'] ?? false;
+
+        if ( $can_receive_email_marketing  ) {
+          $user_status = 'subscribed';
+        }
+
+        // Find WordPress user by email
+        $user = get_user_by( 'email', $email );
+        if ( $user ) {
+
+          // Insert or update the record in our custom table
+          $wpdb->replace(
+            $table_name,
+            [
+              'user_id'    => $user->ID,
+              'status'     => $user_status,
+              'klaviyo_id' => $klaviyo_id
+            ],
+            ['%d', '%s', '%s']
+          );
+        }
+      }
+    }
+
+    // Save the next page cursor for the next run
+    if ( $next_page_cursor ) {
+      update_option( 'klaviyo_profiles_page_cursor', $next_page_cursor );
+    } else {
+      // If no more pages, reset the cursor to start over
+      delete_option( 'klaviyo_profiles_page_cursor' );
+    }
+
+    $klaviyo_sync->log('Successfully processed ' . count($profiles) . ' profiles from Klaviyo');
+
+  } catch (Exception $e) {
+    $klaviyo_sync->log('Error downloading profiles from Klaviyo: ' . $e->getMessage());
   }
 }
 
-if ( function_exists('as_schedule_recurring_action') ) {
-  // Schedule new portion of users to be processed every 10 minutes 
-  if ( ! as_next_scheduled_action( 'new_user_profiles_for_klaviyo_sync' ) ) {
-    as_schedule_recurring_action( time(), 600, 'new_user_profiles_for_klaviyo_sync' );
+function extract_page_cursor_parameter( $cursor_link ) {
+
+  $result = false;
+
+  $query = parse_url($cursor_link, PHP_URL_QUERY);
+
+
+  foreach ( explode('&', $query) as $chunk ) {
+    $param = explode( "=", $chunk );
+    if ( $param ) {
+      $param_name = urldecode($param[0]);
+      $param_value = urldecode($param[1]);
+      
+      if ( $param_name == 'page[cursor]') {
+        $result = $param_value;
+      }
+      
+    }
+  }
+
+  return $result;
+}
+
+function set_up_klaviyo_sync() {
+  if ( function_exists('as_schedule_recurring_action') ) {
+    // Schedule new portion of users to be processed every 10 minutes 
+    if ( ! as_next_scheduled_action( 'bulk_download_profiles_for_klaviyo' ) ) {
+      as_schedule_recurring_action( time(), 300, 'bulk_download_profiles_for_klaviyo' );
+    }
   }
 }
 
-add_action( 'new_user_profiles_for_klaviyo_sync', 'schedule_user_profiles_for_klaviyo_sync', 10, 0 );
+if ( isset( $_GET['test_klaviyo_downloads'] ) )  {
+  bulk_download_profiles_for_klaviyo( $_GET['test_klaviyo_downloads'] );
+  die();
+}
+
+add_action( 'bulk_download_profiles_for_klaviyo', 'bulk_download_profiles_for_klaviyo', 10, 0 );
 
 // Add the action hook for processing user profiles
 add_action( 'process_user_profile_for_klaviyo', 'sync_user_reward_points_with_klaviyo', 10, 1 );
 
-add_action( 'init', 'test_klaviyo' );
+add_action( 'plugins_loaded', 'set_up_klaviyo_sync', 10, 0 );
