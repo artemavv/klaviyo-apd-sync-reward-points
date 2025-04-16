@@ -4,7 +4,7 @@
  * Plugin URI:
  * Description: Updates user's rewards points via Klaviyo API.
  * Author: Artem
- * Version: 0.3
+ * Version: 0.4
  * Author URI:
  */
 
@@ -116,9 +116,12 @@ function bulk_sync_profiles_for_klaviyo() {
   $page_cursor = get_option( 'klaviyo_profiles_page_cursor', null );
 
   // Klaviyo API allows to download up to 100 profiles per request
-  $page_size = 10; 
+  $page_size = 100; 
 
   try {
+    
+    $klaviyo_sync->log('Started processing' . $page_size . ' profiles from Klaviyo at ' . time() );
+    
     // Get profiles from Klaviyo API
     $response = $klaviyo_sync->klaviyo->Profiles->getProfiles(
       array( 'subscriptions' ), // additional_fields_profile
@@ -187,7 +190,7 @@ function bulk_sync_profiles_for_klaviyo() {
       delete_option( 'klaviyo_profiles_page_cursor' );
     }
 
-    $klaviyo_sync->log('Successfully processed ' . count($profiles) . ' profiles from Klaviyo');
+    $klaviyo_sync->log('Successfully processed ' . count($profiles) . ' profiles from Klaviyo, ' . $next_page_cursor);
 
   } catch (Exception $e) {
     $klaviyo_sync->log('Error downloading profiles from Klaviyo: ' . $e->getMessage());
@@ -236,4 +239,4 @@ add_action( 'bulk_download_profiles_for_klaviyo', 'bulk_download_profiles_for_kl
 // Add the action hook for processing user profiles
 add_action( 'process_user_profile_for_klaviyo', 'sync_user_reward_points_with_klaviyo', 10, 1 );
 
-add_action( 'plugins_loaded', 'set_up_klaviyo_sync', 10, 0 );
+add_action( 'init', 'set_up_klaviyo_sync', 10, 0 );

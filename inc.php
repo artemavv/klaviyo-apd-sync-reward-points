@@ -100,7 +100,7 @@ class Klaviyo_Profile_Rewards_Sync {
     $sql = $wpdb->prepare( "SELECT u.ID, u.user_email, um.meta_value AS reward_points FROM {$prefix}users AS u
       LEFT JOIN {$prefix}usermeta AS um ON u.ID = um.user_id AND um.meta_key = %s   
       LEFT JOIN {$prefix}users_klaviyo_data AS ukd ON u.ID = ukd.user_id
-      WHERE ukd.user_id IS NULL AND um.user_id IS NOT NULL
+      WHERE ukd.status = 'subscribed' AND um.user_id IS NOT NULL
       ORDER BY u.ID DESC
       LIMIT %d", self::UMETA_KEY__REWARD_POINTS, $limit );
     
@@ -121,10 +121,9 @@ class Klaviyo_Profile_Rewards_Sync {
     We have a custom SQL table to store the Klaviyo data for each user
 
 CREATE TABLE `wp_users_klaviyo_data` (
-  `klaviyo_id` varchar(255) NOT NULL PRIMARY KEY,
-  `email` varchar(255) NOT NULL,
+  `user_id` int NOT NULL PRIMARY KEY,
   `status` tinytext NOT NULL,
-  `user_id` int NOT NULL
+  `klaviyo_id` varchar(255) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
   */
 
@@ -138,15 +137,11 @@ CREATE TABLE `wp_users_klaviyo_data` (
     global $wpdb;
     
     $prefix = $wpdb->prefix;
-    /*
-    $sql = "UPDATE INTO {$prefix}users_klaviyo_data (klaviyo_id, email, status, user_id) VALUES ";
+    
+    $id_list = implode( ',' , $user_ids );
+    
+    $sql = "UPDATE {$prefix}users_klaviyo_data SET status = 'synced' WHERE user_id IN ( $id_list )";
 
-    foreach ( $user_ids as $user_id ) {
-      $sql .= "(" . $user_id . ", 'synced', ''),";
-    }
-
-    $sql = rtrim( $sql, ',' );
-*/
     $wpdb->query( $sql );
 
   }
@@ -251,6 +246,11 @@ CREATE TABLE `wp_users_klaviyo_data` (
     return $update_response;
   }
   
+  /**
+   * DEPRECATED
+   * @global type $wpdb
+   * @return type
+   */
   public function get_users_without_klaviyo_id() {
     
     $user_ids = array();
