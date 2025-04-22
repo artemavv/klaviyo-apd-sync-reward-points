@@ -82,6 +82,7 @@ class Klaviyo_Profile_Rewards_Sync {
     return $klaviyo_profile_id;
   }
 
+
   /**
    * Finds N users who are not yet synced to Klavio
    * 
@@ -89,7 +90,7 @@ class Klaviyo_Profile_Rewards_Sync {
    * 
    * @return array
    */
-  public function get_users_to_update_bulk( $limit = 9000 ) {
+  public function get_users_to_update_bulk( $limit = 9000, $target_status = 'subscribed' ) {
 
     $user_data = array();
     
@@ -100,10 +101,17 @@ class Klaviyo_Profile_Rewards_Sync {
     $sql = $wpdb->prepare( "SELECT u.ID, u.user_email, um.meta_value AS reward_points FROM {$prefix}users AS u
       LEFT JOIN {$prefix}usermeta AS um ON u.ID = um.user_id AND um.meta_key = %s   
       LEFT JOIN {$prefix}users_klaviyo_data AS ukd ON u.ID = ukd.user_id
-      WHERE ukd.status = 'subscribed' AND um.user_id IS NOT NULL
+      WHERE ukd.status = %s AND um.user_id IS NOT NULL
       ORDER BY u.ID DESC
-      LIMIT %d", self::UMETA_KEY__REWARD_POINTS, $limit );
+      LIMIT %d", self::UMETA_KEY__REWARD_POINTS, $target_status, $limit );
     
+
+
+if ( isset( $_GET['test_klaviyo_sync'] ) )  {
+
+  echo $sql;
+    
+}
     $user_data = $wpdb->get_results( $sql, ARRAY_A );
     
     $min_id = $user_data[0]['ID'];
@@ -121,7 +129,7 @@ class Klaviyo_Profile_Rewards_Sync {
     We have a custom SQL table to store the Klaviyo data for each user
 
 CREATE TABLE `wp_users_klaviyo_data` (
-  `user_id` int NOT NULL PRIMARY KEY,
+  `user_id` int NOT NULL,
   `status` tinytext NOT NULL,
   `klaviyo_id` varchar(255) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

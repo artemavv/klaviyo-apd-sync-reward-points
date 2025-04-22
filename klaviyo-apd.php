@@ -4,7 +4,7 @@
  * Plugin URI:
  * Description: Updates user's rewards points via Klaviyo API.
  * Author: Artem
- * Version: 0.4
+ * Version: 0.4.1
  * Author URI:
  */
 
@@ -51,12 +51,9 @@ function sync_user_reward_points_with_klaviyo( $user_id ) {
 
 
 /**
- * Callback function for 'bulk_sync_profiles_for_klaviyo' action
- * 
- * This is a recurring scheduled action to sync profiles in bulk
  * 
  */
-function bulk_sync_profiles_for_klaviyo() {
+function bulk_sync_profiles_for_klaviyo( $debug = false ) {
 
   $klaviyo_sync = new Klaviyo_Profile_Rewards_Sync();
 
@@ -72,6 +69,43 @@ function bulk_sync_profiles_for_klaviyo() {
 
 
     if ( $klaviyo_sync->update_profiles_bulk( $users['user_data']) ) {
+      
+      if ( $debug ) {
+        echo('<pre>' . print_r( $user_ids , 1 ) . '</pre>' );
+      }
+      $klaviyo_sync->mark_users_as_synced( $user_ids );   
+    }
+
+  }
+  
+}
+
+/**
+ * 
+ */
+function bulk_sync_profiles_for_klaviyo_again( $debug = false ) {
+
+  $klaviyo_sync = new Klaviyo_Profile_Rewards_Sync();
+
+  if ( $klaviyo_sync->is_ok() ) {
+
+    $users = $klaviyo_sync->get_users_to_update_bulk( 9000, 'needs_sync' );
+
+    foreach ( $users['user_data'] as $user ) {
+      $user_ids[] = $user['ID'];
+    }
+
+    if ( $debug ) {
+      echo('<pre>' . print_r( $user_ids , 1 ) . '</pre>' );
+      die();
+    }
+
+    $klaviyo_sync->log( 'Sending (2) BULK profiles to update in Klaviyo, IDs: ' . $users['min_id'] . ' - ' . $users['max_id'] );
+
+
+    if ( $klaviyo_sync->update_profiles_bulk( $users['user_data']) ) {
+      
+      
       $klaviyo_sync->mark_users_as_synced( $user_ids );   
     }
 
@@ -220,6 +254,7 @@ function extract_page_cursor_parameter( $cursor_link ) {
   return $result;
 }
 
+
 function set_up_klaviyo_sync() {
   if ( function_exists('as_schedule_recurring_action') ) {
     // Schedule new portion of users to be processed every 10 minutes 
@@ -233,6 +268,21 @@ if ( isset( $_GET['test_klaviyo_downloads'] ) )  {
   bulk_download_profiles_for_klaviyo( $_GET['test_klaviyo_downloads'] );
   die();
 }
+
+if ( isset( $_GET['test_klaviyo_sync'] ) )  {
+  bulk_sync_profiles_for_klaviyo( $_GET['test_klaviyo_sync'] );
+  die();
+}
+
+if ( isset( $_GET['test_klaviyo_sync_again'] ) )  {
+
+  $debug =  $_GET['test_klaviyo_sync_again'];
+  bulk_sync_profiles_for_klaviyo_again( $debug );
+  die();
+}
+
+
+
 
 add_action( 'bulk_download_profiles_for_klaviyo', 'bulk_download_profiles_for_klaviyo', 10, 0 );
 
